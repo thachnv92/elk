@@ -1,0 +1,85 @@
+#================#
+###Install Java###
+#================#
+#Verify that your system meets the minimum JVM requirements for Logstash and Elasticsearch
+https://www.elastic.co/support/matrix
+#Upgrade:
+sudo apt-get update
+sudo add-apt-repository ppa:openjdk-r/ppa
+sudo apt-get update
+sudo apt-get install openjdk-8-jdk -y
+sudo update-alternatives --config java
+java -version
+sudo update-alternatives --config javac
+
+
+#====================#
+###Install Filebeat###
+#====================#
+wget https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-6.3.2-linux-x86_64.tar.gz
+tar -xvf filebeat-6.3.2-linux-x86_64.tar.gz
+sudo ./filebeat -e -c filebeat.yml
+screen -d -m ./filebeat -c filebeat.yml &
+SCREEN -d -m /home/ubuntu/filebeat/filebeat -c /home/ubuntu/filebeat/filebeat.yml
+
+
+
+#====================#
+###Install Logstash###
+#====================#
+#Documents
+https://www.elastic.co/downloads/logstash
+https://www.elastic.co/guide/en/logstash/current/installing-logstash.html
+https://www.elastic.co/guide/en/logstash/current/configuration.html
+
+wget https://artifacts.elastic.co/downloads/logstash/logstash-6.3.2.tar.gz
+tar -xvf logstash-6.3.2.tar.gz
+bin/logstash -f logstash.conf
+
+https://www.elastic.co/guide/en/logstash/current/configuration.html
+#Run with config
+/home/ubuntu/logstash/bin/logstash -l /home/ubuntu/logstash/logs/log-docker --path.data /home/ubuntu/logstash/data-docker -f /home/ubuntu/logstash/config/config-docker.conf &
+/home/ubuntu/logstash/bin/logstash -l /home/ubuntu/logstash/logs/log-haproxy --path.data /home/ubuntu/logstash/data-haproxy -f /home/ubuntu/logstash/config/config-haproxy.conf &
+#Install plugin S3
+./logstash-plugin install logstash-input-s3
+
+
+#=========================#
+###Install Elasticsearch###
+#=========================#
+https://www.elastic.co/guide/en/elasticsearch/reference/current/_installation.html
+wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-6.3.2.tar.gz
+tar -xvf elasticsearch-6.3.2.tar.gz
+elasticsearch-6.3.2/bin/elasticsearch &
+#Install plugin S3
+sudo elasticsearch-6.3.2/bin/elasticsearch-plugin install repository-s3
+stop/start
+
+
+#==================#
+###Install Kibana###
+#==================#
+https://www.elastic.co/guide/en/kibana/current/targz.html
+wget https://artifacts.elastic.co/downloads/kibana/kibana-6.3.2-linux-x86_64.tar.gz
+shasum -a 512 kibana-6.3.2-linux-x86_64.tar.gz 
+tar -xzf kibana-6.3.2-linux-x86_64.tar.gz
+cd kibana-6.3.2-linux-x86_64/
+./bin/kibana &
+#Configure
+config/kibana.yml
+logging.dest: /var/log/kibana.log
+
+
+#====================#
+###Configure memory###
+#====================#
+/etc/elasticsearch/jvm.options
+https://www.elastic.co/guide/en/elasticsearch/reference/current/heap-size.html
+
+
+#=========#
+###ERROR###
+#=========#
+ERROR: [1] bootstrap checks failed
+[1]: max virtual memory areas vm.max_map_count [65530] is too low, increase to at least [262144]
+sudo sysctl -w vm.max_map_count=262144
