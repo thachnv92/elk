@@ -1,0 +1,123 @@
+mkdir /project/search-guard-tool
+cd /project/search-guard-tool
+wget https://search.maven.org/remotecontent?filepath=com/floragunn/search-guard-tlstool/1.7/search-guard-tlstool-1.7.tar.gz
+tar -xzvf remotecontent?filepath=com%2Ffloragunn%2Fsearch-guard-tlstool%2F1.7%2Fsearch-guard-tlstool-1.7.tar.gz
+
+vi config/cluster.yml
+###
+ca:
+   root:
+      dn: CN=root.ca.project,OU=CA,O=BugBear.BG\, Ltd.,DC=BugBear,DC=com
+      keysize: 2048
+      validityDays: 3650
+      pkPassword: none
+      file: root-ca.pem
+   intermediate:
+      dn: CN=signing.ca.project,OU=CA,O=BugBear.BG\, Ltd.,DC=BugBear,DC=com
+      keysize: 2048
+      validityDays: 3650
+      pkPassword: none
+      crlDistributionPoints: URI:https://raw.githubusercontent.com/floragunncom/unittest-assets/master/revoked.crl
+defaults:
+      validityDays: 3650
+      pkPassword: none
+      generatedPasswordLength: 12
+      httpsEnabled: true
+nodes:
+  - name: els001
+    dn: CN=els001.project,OU=Ops,O=BugBear BG\, Ltd.,DC=BugBear,DC=com
+    dns:
+      - els001.project
+    ip:
+      - 192.168.55.1
+
+  - name: els002
+    dn: CN=els002.project,OU=Ops,O=BugBear BG\, Ltd.,DC=BugBear,DC=com
+    dns:
+      - els002.project
+    ip:
+      - 192.168.55.2
+clients:
+  - name: project
+    dn: CN=root.project,OU=Ops,O=BugBear Com\, Inc.,DC=example,DC=com
+    admin: true
+###
+/project/sgtool/tools/sgtlstool.sh -c ../config/cluster.yml -v -ca
+/project/sgtool/tools/sgtlstool.sh -c ../config/cluster.yml -v -csr
+/project/sgtool/tools/sgtlstool.sh -f -o -c ../config/cluster.yml -v -crt
+
+scp -P2022 /project/sgtool/tools/out/els002* project@els002:/project/elasticsearch/config/ssl
+scp -P2022 /project/sgtool/tools/out/root-ca.pem project@els002:/project/elasticsearch/config/ssl
+
+cp /project/sgtool/tools/out/els001* /project/elasticsearch/config/ssl
+cp /project/sgtool/tools/out/root-ca.pem /project/elasticsearch/config/ssl
+cp /project/sgtool/tools/out/project* /project/elasticsearch/config/ssl
+
+sudo sysctl -w vm.max_map_count=262144
+/project/elasticsearch/bin/elasticsearch &
+
+curl -XPUT -k 'http://localhost:9200/_cluster/settings?pretty' -H 'Content-Type: application/json' -d '{"persistent":{"cluster.routing.allocation.enable": "none" }}'
+
+cd /project/elasticsearch/bin/
+/project/elasticsearch/bin/elasticsearch-plugin install -b com.floragunn:search-guard-7:7.1.0-35.0.0
+
+chmod +x /project/elasticsearch/plugins/search-guard-7/tools/*.sh
+
+# Re-enable cluster shard allocation
+/project/elasticsearch/plugins/search-guard-7/tools/sgadmin.sh --enable-shard-allocation -key /project/elasticsearch/config/ssl/project.key -cert /project/elasticsearch/config/ssl/project.pem -cacert /project/elasticsearch/config/ssl/root-ca.pem -icl -nhnv -h els001
+
+#Initialize search-guard index by using sgadmin tool
+/project/elasticsearch/plugins/search-guard-7/tools/sgadmin.sh -cd /project/elasticsearch/plugins/search-guard-7/sgconfig -icl -key /project/elasticsearch/config/ssl/project.key -cert /project/elasticsearch/config/ssl/project.pem -cacert /project/elasticsearch/config/ssl/root-ca.pem -nhnv -h els001.project
+ 
+ 
+###
+xpack.license.self_generated.type: basic
+xpack.security.enabled: false
+searchguard.enterprise_modules_enabled: false
+searchguard.restapi.roles_enabled: ["SGS_ALL_ACCESS"]
+
+searchguard.ssl.transport.pemcert_filepath: ssl/els001.pem
+searchguard.ssl.transport.pemkey_filepath: ssl/els001.key
+searchguard.ssl.transport.pemtrustedcas_filepath: ssl/root-ca.pem
+searchguard.ssl.transport.enforce_hostname_verification: false
+searchguard.ssl.transport.resolve_hostname: false
+searchguard.ssl.http.enabled: true
+searchguard.ssl.http.pemcert_filepath: ssl/els001_http.pem
+searchguard.ssl.http.pemkey_filepath: ssl/els001_http.key
+searchguard.ssl.http.pemtrustedcas_filepath: ssl/root-ca.pem
+searchguard.nodes_dn:
+- CN=els001,OU=Ops,O=BugBear BG\, Ltd.,DC=BugBear,DC=com
+- CN=els002,OU=Ops,O=BugBear BG\, Ltd.,DC=BugBear,DC=com
+searchguard.authcz.admin_dn:
+- CN=root.project,OU=Ops,O=BugBear Com\, Inc.,DC=example,DC=com
+
+
+######################################################################
+/project/elasticsearch/plugins/search-guard-7/tools/sgadmin.sh -cd /project/elasticsearch/plugins/search-guard-7/sgconfig -icl -key /project/elasticsearch/config/ssl/project.key -cert /project/elasticsearch/config/ssl/project.pem -cacert /project/elasticsearch/config/ssl/root-ca.pem -nhnv -h pas1els001
+
+###SG6
+/project/elasticsearch/plugins/search-guard-6/tools/sgadmin.sh -cd /project/elasticsearch/plugins/search-guard-6/sgconfig -icl -key /project/elasticsearch/config/kirk-key.pem -cert /project/elasticsearch/config/kirk.pem -cacert /project/elasticsearch/config/root-ca.pem -nhnv -h pew1els001 --accept-red-cluster
+# --accept-red-cluster
+
+
+### TEST
+Create Index 
+curl -XPOST -u user:password -k https://localhost:9200/_bulk --data-binary @bulk_movies.json -H 'Content-Type: application/json'
+
+Backup snapshot
+curl -XPOST -u user:password -H "Content-Type: application/json" -k https://localhost:9200/_snapshot/s3_repository/backup-movies?wait_for_completion=true -d '{
+  "indices" : "movies",
+  "ignore_unavailable" : true,
+  "include_global_state" : false
+}'
+
+
+Delete indices
+curl -XDELETE -u user:password -k 'https://localhost:9200/movies'
+
+
+Restore snapshot
+curl -XPOST -u user:password -H "Content-Type: application/json" -k https://localhost:9200/_snapshot/s3_repository/backup-movies/_restore
+
+Delete snapshot
+curl -XDELETE -u user:password -H "Content-Type: application/json" -k https://localhost:9200/_snapshot/s3_repository/backup-movies
